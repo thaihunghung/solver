@@ -74,14 +74,25 @@ class Solver:
         print("solve_invisible failed")  # LOG DEBUG
         return "failed"
 
-    def solve_visible(self):
-        print("Starting solve_visible...")  # LOG DEBUG
+def solve_visible(self, timeout=30):
+    print("Starting solve_visible...")
+    start_time = time.time()
+
+    # Wait for iframe with timeout
+    iframe = None
+    while not iframe and time.time() - start_time < timeout:
         iframe = self.page.query_selector("iframe")
-        while not iframe:
-            iframe = self.page.query_selector("iframe")
-            time.sleep(0.1)
-        while not iframe.bounding_box():
-            time.sleep(0.1)
+        time.sleep(0.1)
+    if not iframe:
+        print("Error: Iframe not found within timeout")
+        return "failed"
+
+    # Wait for bounding box with timeout
+    while not iframe.bounding_box() and time.time() - start_time < timeout:
+        time.sleep(0.1)
+    if not iframe.bounding_box():
+        print("Error: Iframe bounding box not available")
+        return "failed"
 
         x = iframe.bounding_box()["x"] + random.randint(5, 12)
         y = iframe.bounding_box()["y"] + random.randint(5, 12)
