@@ -146,3 +146,78 @@ class Solver:
             self.move_to(x, y)
             self.current_x = x
             self.current_y = y
+        except Exception as e:
+            print(f"Error accessing checkbox bounding box: {e}")
+            return "failed"
+
+        # Click checkbox
+        try:
+            time.sleep(random.uniform(0.5, 1.5))
+            self.page.mouse.click(x, y)
+        except Exception as e:
+            print(f"Error during mouse click: {e}")
+            return "failed"
+
+        # Wait for response token
+        try:
+            elem = self.page.wait_for_selector("[name=cf-turnstile-response]", timeout=10000)
+            if elem:
+                val = elem.get_attribute("value")
+                if val:
+                    print(f"solve_visible got token: {val}")
+                    return val
+                else:
+                    print("Error: cf-turnstile-response has no value")
+            else:
+                print("Error: cf-turnstile-response element not found")
+        except Exception as e:
+            print(f"Error during response check: {e}")
+
+        print("solve_visible failed")
+        return "failed"
+
+    def solve(self, url, sitekey, invisible=False):
+        print(f"Starting solve for {url} with sitekey {sitekey} invisible={invisible}")  # LOG DEBUG
+        self.url = url + "/" if not url.endswith("/") else url
+        self.sitekey = sitekey
+        self.invisible = invisible
+        self.context = self.browser.new_context()
+        self.page = self.context.new_page()
+
+        self.build_page_data()
+
+        self.page.route(self.url, lambda route: route.fulfill(body=self.page_data, status=200))
+        self.page.goto(self.url)
+        output = "failed"
+        self.current_x = 0
+        self.current_y = 0
+
+        self.window_width = self.page.evaluate("window.innerWidth")
+        self.window_height = self.page.evaluate("window.innerHeight")
+        if self.invisible:
+            output = self.solve_invisible()
+        else:
+            output = self.solve_visible()
+
+        self.context.close()
+        print(f"Solve finished with output: {output}")  # LOG DEBUG
+        return output
+
+    def start_browser(self, playwright):
+        print(f"start_browser called with proxy: {self.proxy} headless: {self.headless}")  # LOG DEBUG
+        try:
+            if self.proxy:
+                self.browser = playwright.firefox.launch(
+                    headless=self.headless,
+                    proxy={
+                        "server": "http://" + self.proxy.split("@")[1],
+                        "username": self.proxy.split("@")[0].split(":")[0],
+                        "password": self.proxy.split("@")[0].split(":")[1]
+                    }
+                )
+            else:
+                self.browser = playwright.firefox.launch(headless=self.headless)
+            print("Browser started successfully")  # LOG DEBUG
+        except Exception as e:
+            print("Error launching browser:", e)  # LOG DEBUG
+            raise e
