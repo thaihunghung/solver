@@ -75,68 +75,106 @@ class Solver:
         return "failed"
 
 def solve_visible(self, timeout=30):
-    print("Starting solve_visible...")
+    print(f"Starting solve_visible... URL: {self.page.url}")
     start_time = time.time()
 
-    # Wait for iframe with timeout
+    # Try to find the Shadow host or iframe directly
     iframe = None
     while not iframe and time.time() - start_time < timeout:
-        iframe = self.page.query_selector("iframe")
+        # First try direct iframe selector
+        iframe = self.page.query_selector("iframe[src*='challenges.cloudflare.com']")
+        if not iframe:
+            # Try accessing via Shadow DOM
+            iframe = self.page.evaluate_handle("""
+                () => {
+                    const host = document.querySelector('cf-turnstile, [data-cf-challenge], div#challenge');
+                    if (host && host.shadowRoot) {
+                        return host.shadowRoot.querySelector('iframe');
+                    }
+                    return document.querySelector('iframe');
+                }
+            """)
         time.sleep(0.1)
     if not iframe:
-        print("Error: Iframe not found within timeout")
+        print("Error: Iframe not found in Shadow DOM or main DOM")
         return "failed"
 
-    # Wait for bounding box with timeout
+    # Wait for iframe bounding box
     while not iframe.bounding_box() and time.time() - start_time < timeout:
         time.sleep(0.1)
     if not iframe.bounding_box():
         print("Error: Iframe bounding box not available")
         return "failed"
 
-        x = iframe.bounding_box()["x"] + random.randint(5, 12)
-        y = iframe.bounding_box()["y"] + random.randint(5, 12)
+    # Calculate coordinates for iframe
+    try:
+        box = iframe.bounding_box()
+        x = box["x"] + random.randint(5, 12)
+        y = box["y"] + random.randint(5, 12)
         self.move_to(x, y)
         self.current_x = x
         self.current_y = y
-        framepage = iframe.content_frame()
-        checkbox = framepage.query_selector("input")
-
-        while not checkbox:
-            checkbox = framepage.query_selector("input")
-            time.sleep(0.1)
-
-        width = checkbox.bounding_box()["width"]
-        height = checkbox.bounding_box()["height"]
-
-        x = checkbox.bounding_box()["x"] + width / 5 + random.randint(int(width / 5), int(width - width / 5))
-        y = checkbox.bounding_box()["y"] + height / 5 + random.randint(int(height / 5), int(height - height / 5))
-
-        self.move_to(x, y)
-        self.current_x = x
-        self.current_y = y
-
-        time.sleep(random.randint(1, 5) / random.randint(400, 600))
-        self.page.mouse.click(x, y)
-
-        iterations = 0
-        while iterations < 10:
-            self.random_x = random.randint(0, self.window_width)
-            self.random_y = random.randint(0, self.window_height)
-            iterations += 1
-
-            self.move_to(self.random_x, self.random_y)
-            self.current_x = self.random_x
-            self.current_y = self.random_y
-            elem = self.page.query_selector("[name=cf-turnstile-response]")
-            if elem:
-                val = elem.get_attribute("value")
-                if val:
-                    print(f"solve_visible got token: {val}")  # LOG DEBUG
-                    return val
-            time.sleep(random.randint(2, 5) / random.randint(400, 600))
-        print("solve_visible failed")  # LOG DEBUG
+    except Exception as e:
+        print(f"Error accessing iframe bounding box: {e}")
         return "failed"
+
+    # Access iframe content
+    framepage = iframe.content_frame()
+    if not framepage:
+        print("Error: Could not access iframe content")
+        return "failed"
+
+    # Wait for checkbox
+    checkbox = None
+    while not checkbox and time.time() - start_time < timeout:
+        checkbox = framepage.query_selector("input[type=checkbox]")
+        time.sleep(0.1)
+    if not checkbox:
+        print("Error: Checkbox not found in iframe")
+        return "failed"
+
+    # Calculate checkbox coordinates
+    try:
+        box = checkbox.bounding_box()
+        if not box:
+            print("Error: Checkbox bounding box not available")
+            return "failed"
+        width = box["width"]
+        height = box["height"]
+        x = box["x"] + width / 5 + random.randint(int(width / 5), int(width - width / 5))
+        y = box["y"] + height / 5 + random.randint(int(height / 5), int(height - height / 5))
+        self.move_to(x, y)
+        self.current_x = x
+        self.current_y = y
+    except Exception as e:
+        print(f"Error accessing checkbox bounding box: {e}")
+        return "failed"
+
+    # Click checkbox
+    try:
+        time.sleep(random.uniform(0.5, 1.5))
+        self.page.mouse.click(x, y)
+    except Exception as e:
+        print(f"Error during mouse click: {e}")
+        return "failed"
+
+    # Wait for response token
+    try:
+        elem = self.page.wait_for_selector("[name=cf-turnstile-response]", timeout=10000)
+        if elem:
+            val = elem.get_attribute("value")
+            if val:
+                print(f"solve_visible got token: {val}")
+                return val
+            else:
+                print("Error: cf-turnstile-response has no value")
+        else:
+            print("Error: cf-turnstile-response element not found")
+    except Exception as e:
+        print(f"Error during response check: {e}")
+    
+    print("solve_visible failed")
+    return "failed"
 
     def solve(self, url, sitekey, invisible=False):
         print(f"Starting solve for {url} with sitekey {sitekey} invisible={invisible}")  # LOG DEBUG
