@@ -3,24 +3,26 @@ import random
 
 class Solver:
     def __init__(self, playwright, proxy="", headless=True):
+        print("Solver.__init__ start")  # LOG DEBUG
         self.playwright = playwright
         self.proxy = proxy
         self.headless = headless
 
         self.start_browser(self.playwright)
-            
+        print("Solver.__init__ end")  # LOG DEBUG
+
     def terminate(self):
+        print("Terminating browser...")  # LOG DEBUG
         self.browser.close()
 
     def build_page_data(self):
-        # this builds a custom page with the sitekey so we do not have to load the actual page, taking less bandwidth
+        print("Building page data...")  # LOG DEBUG
         with open("utils/page.html") as f:
             self.page_data = f.read()
         stub = f"<div class=\"cf-turnstile\" data-sitekey=\"{self.sitekey}\"></div>"
         self.page_data = self.page_data.replace("<!-- cf turnstile -->", stub)
 
     def get_mouse_path(self, x1, y1, x2, y2):
-        # calculate the path to x2 and y2 from x1 and y1
         path = []
         x = x1
         y = y1
@@ -54,7 +56,6 @@ class Solver:
 
     def solve_invisible(self):
         iterations = 0
-
         while iterations < 10:
             self.random_x = random.randint(0, self.window_width)
             self.random_y = random.randint(0, self.window_height)
@@ -65,14 +66,16 @@ class Solver:
             self.current_y = self.random_y
             elem = self.page.query_selector("[name=cf-turnstile-response]")
             if elem:
-                if elem.get_attribute("value"):
-                    return elem.get_attribute("value")
+                val = elem.get_attribute("value")
+                if val:
+                    print(f"solve_invisible got token: {val}")  # LOG DEBUG
+                    return val
             time.sleep(random.randint(2, 5) / random.randint(400, 600))
+        print("solve_invisible failed")  # LOG DEBUG
         return "failed"
-            
 
     def solve_visible(self):
-     
+        print("Starting solve_visible...")  # LOG DEBUG
         iframe = self.page.query_selector("iframe")
         while not iframe:
             iframe = self.page.query_selector("iframe")
@@ -99,16 +102,13 @@ class Solver:
         y = checkbox.bounding_box()["y"] + height / 5 + random.randint(int(height / 5), int(height - height / 5))
 
         self.move_to(x, y)
-
         self.current_x = x
         self.current_y = y
-        
 
         time.sleep(random.randint(1, 5) / random.randint(400, 600))
         self.page.mouse.click(x, y)
 
         iterations = 0
-
         while iterations < 10:
             self.random_x = random.randint(0, self.window_width)
             self.random_y = random.randint(0, self.window_height)
@@ -119,14 +119,16 @@ class Solver:
             self.current_y = self.random_y
             elem = self.page.query_selector("[name=cf-turnstile-response]")
             if elem:
-                if elem.get_attribute("value"):
-                    return elem.get_attribute("value")
+                val = elem.get_attribute("value")
+                if val:
+                    print(f"solve_visible got token: {val}")  # LOG DEBUG
+                    return val
             time.sleep(random.randint(2, 5) / random.randint(400, 600))
+        print("solve_visible failed")  # LOG DEBUG
         return "failed"
 
-
-    
     def solve(self, url, sitekey, invisible=False):
+        print(f"Starting solve for {url} with sitekey {sitekey} invisible={invisible}")  # LOG DEBUG
         self.url = url + "/" if not url.endswith("/") else url
         self.sitekey = sitekey
         self.invisible = invisible
@@ -134,7 +136,7 @@ class Solver:
         self.page = self.context.new_page()
 
         self.build_page_data()
-        
+
         self.page.route(self.url, lambda route: route.fulfill(body=self.page_data, status=200))
         self.page.goto(self.url)
         output = "failed"
@@ -147,16 +149,23 @@ class Solver:
             output = self.solve_invisible()
         else:
             output = self.solve_visible()
-        
-        self.context.close()
-        return output
-    def start_browser(self, playwright):
 
-        if self.proxy:
-            self.browser = playwright.firefox.launch(headless=self.headless, proxy={
-                "server": "http://" + self.proxy.split("@")[1],
-                "username": self.proxy.split("@")[0].split(":")[0],
-                "password": self.proxy.split("@")[0].split(":")[1]
-            })
-        else:
-            self.browser = playwright.firefox.launch(headless=self.headless)
+        self.context.close()
+        print(f"Solve finished with output: {output}")  # LOG DEBUG
+        return output
+
+    def start_browser(self, playwright):
+        print(f"start_browser called with proxy: {self.proxy} headless: {self.headless}")  # LOG DEBUG
+        try:
+            if self.proxy:
+                self.browser = playwright.firefox.launch(headless=self.headless, proxy={
+                    "server": "http://" + self.proxy.split("@")[1],
+                    "username": self.proxy.split("@")[0].split(":")[0],
+                    "password": self.proxy.split("@")[0].split(":")[1]
+                })
+            else:
+                self.browser = playwright.firefox.launch(headless=self.headless)
+            print("Browser started successfully")  # LOG DEBUG
+        except Exception as e:
+            print("Error launching browser:", e)  # LOG DEBUG
+            raise e
